@@ -206,6 +206,8 @@ class Handler(asyncio.Protocol):
         self.in_file = {}
         # Stores incoming string information from string commands.
         self.in_str = {}
+        # Stores partial msg size when dividing it into chunks.
+        self.partial_msg_size = 0
         # Maximum message length to send in a single request.
         self.request_chunk = 5242880
         # Object use to encrypt and decrypt requests.
@@ -267,13 +269,44 @@ class Handler(asyncio.Protocol):
             raise exception.WazuhClusterError(3024, extra_message=command)
 
         # adds - to command until it reaches cmd length
-        command = command + b' ' + b'-' * (self.cmd_len - cmd_len - 1)
+        command_dashes = command + b' ' + b'-' * (self.cmd_len - cmd_len - 1)
         encrypted_data = self.my_fernet.encrypt(data) if self.my_fernet is not None else data
-        out_msg = bytearray(self.header_len + len(encrypted_data))
-        out_msg[:self.header_len] = struct.pack(self.header_format, counter, len(encrypted_data), command)
-        out_msg[self.header_len:self.header_len + len(encrypted_data)] = encrypted_data
 
-        return out_msg
+        if self.header_len + len(encrypted_data) <= self.request_chunk:
+            msg = bytearray(self.header_len + len(encrypted_data))
+            msg[:self.header_len] = struct.pack(self.header_format, counter, len(encrypted_data), command_dashes)
+            msg[self.header_len:self.header_len + len(encrypted_data)] = encrypted_data
+            return [msg]
+        else:
+            msgs = [self.msg_build(command + b'_d', counter, b''),
+                    self.divided_msg_build(command, counter, encrypted_data[:self.request_chunk - self.header_len],
+                                           len(encrypted_data)),
+                    self.divided_msg_build(command, counter, encrypted_data[self.request_chunk - self.header_len:],
+                                           len(encrypted_data))]
+            return msgs
+
+    def divided_msg_build(self, command: bytes, counter: int, data: bytes, total_length: int) -> bytes:
+
+        cmd_len = len(command)
+        if cmd_len > self.cmd_len:
+            raise exception.WazuhClusterError(3024, extra_message=command)
+
+        if self.header_len + len(data) > self.request_chunk:
+            self.divided_msg_build(command, counter, data[:self.request_chunk - self.header_len], total_length)
+            self.divided_msg_build(command, counter, data[self.request_chunk - self.header_len:], total_length)
+
+        else:
+            self.partial_msg_size = self.partial_msg_size + len(data[:self.request_chunk - self.header_len])
+            # adds - to command until it reaches cmd length
+            command_dashes = command + b' ' + b'-' * (self.cmd_len - cmd_len - 1)
+
+            out_msg = bytearray(self.header_len + len(data))
+            out_msg[:self.header_len] = struct.pack(self.header_format, counter, len(data), command_dashes)
+            out_msg[self.header_len:self.header_len + len(data)] = data
+
+            if self.partial_msg_size == total_length:
+                self.partial_msg_size = 0
+                self.divided_msg_build(command + b'_e', counter, b'', total_length)
 
     def msg_parse(self) -> bool:
         """Parse an incoming message.
@@ -351,7 +384,11 @@ class Handler(asyncio.Protocol):
         msg_counter = self.next_counter()
         self.box[msg_counter] = response
         try:
-            self.push(self.msg_build(command, msg_counter, data))
+            msg = self.msg_build(command, msg_counter, data)
+            self.push(msg)
+            self.logger.info("PRUEBA1")
+            self.logger.info(msg)
+            self.logger.info("---------------------")
         except MemoryError:
             self.request_chunk //= 2
             raise exception.WazuhClusterError(3026)
@@ -490,6 +527,8 @@ class Handler(asyncio.Protocol):
             Received data.
         """
         self.in_buffer = message
+        # juntar comandos?
+        #if command=b'request_d'
         for command, counter, payload in self.get_messages():
             # If the message is the response of a previously sent request.
             if counter in self.box:
@@ -852,8 +891,9 @@ class WazuhCommon:
                 try:
                     os.remove(self.sync_tasks[taskname].filename)
                 except Exception as e:
-                    self.get_logger(self.logger_tag).error(f"Attempt to delete file {self.sync_tasks[taskname].filename}"
-                                                           f" failed: {e}")
+                    self.get_logger(self.logger_tag).error(
+                        f"Attempt to delete file {self.sync_tasks[taskname].filename}"
+                        f" failed: {e}")
             self.sync_tasks[taskname].filename = error_details_json
             self.sync_tasks[taskname].received_information.set()
         else:
