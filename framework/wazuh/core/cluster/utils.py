@@ -24,6 +24,33 @@ logger = logging.getLogger('wazuh')
 execq_lockfile = join(common.ossec_path, "var/run/.api_execq_lock")
 
 
+def flatten_list(list_in, out_list=[]):
+    """TODO: avoid memory leak in the out_list parameter
+    Transform list with nested lists to a unique list.
+
+    Function used to transform the list with divided cluster messages that have been
+    created in a recursive way to a unique list of messages.
+
+    Parameters
+    ----------
+    list_in : list
+        List of lists to be transformed.
+    out_list : list
+        Empty list that will be filled with values from list_in.
+
+    Returns
+    -------
+    out_list : list
+        List with values from list_in.
+    """
+    for l in list_in:
+        if isinstance(l, out_list):
+            flatten_list(l, out_list)
+        else:
+            out_list.append(l)
+    return out_list
+
+
 def read_cluster_config(config_file=common.ossec_conf) -> typing.Dict:
     """Read cluster configuration from ossec.conf.
 

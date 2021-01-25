@@ -276,37 +276,43 @@ class Handler(asyncio.Protocol):
             msg = bytearray(self.header_len + len(encrypted_data))
             msg[:self.header_len] = struct.pack(self.header_format, counter, len(encrypted_data), command_dashes)
             msg[self.header_len:self.header_len + len(encrypted_data)] = encrypted_data
-            return [msg]
+            return msg
         else:
             msgs = [self.msg_build(command + b'_d', counter, b''),
                     self.divided_msg_build(command, counter, encrypted_data[:self.request_chunk - self.header_len],
                                            len(encrypted_data)),
                     self.divided_msg_build(command, counter, encrypted_data[self.request_chunk - self.header_len:],
                                            len(encrypted_data))]
-            return msgs
+            return wazuh.core.cluster.utils.flatten_list(msgs)
 
     def divided_msg_build(self, command: bytes, counter: int, data: bytes, total_length: int) -> bytes:
-
+        """
+        TODO: add docstring
+        """
         cmd_len = len(command)
         if cmd_len > self.cmd_len:
             raise exception.WazuhClusterError(3024, extra_message=command)
 
         if self.header_len + len(data) > self.request_chunk:
-            self.divided_msg_build(command, counter, data[:self.request_chunk - self.header_len], total_length)
-            self.divided_msg_build(command, counter, data[self.request_chunk - self.header_len:], total_length)
+            msg_divided_1 = self.divided_msg_build(command, counter, data[:self.request_chunk - self.header_len], total_length)
+            msg_divided_2 = self.divided_msg_build(command, counter, data[self.request_chunk - self.header_len:], total_length)
+            return [msg_divided_1, msg_divided_2]
 
         else:
             self.partial_msg_size = self.partial_msg_size + len(data[:self.request_chunk - self.header_len])
             # adds - to command until it reaches cmd length
             command_dashes = command + b' ' + b'-' * (self.cmd_len - cmd_len - 1)
 
-            out_msg = bytearray(self.header_len + len(data))
-            out_msg[:self.header_len] = struct.pack(self.header_format, counter, len(data), command_dashes)
-            out_msg[self.header_len:self.header_len + len(data)] = data
+            msg = bytearray(self.header_len + len(data))
+            msg[:self.header_len] = struct.pack(self.header_format, counter, len(data), command_dashes)
+            msg[self.header_len:self.header_len + len(data)] = data
 
             if self.partial_msg_size == total_length:
                 self.partial_msg_size = 0
-                self.divided_msg_build(command + b'_e', counter, b'', total_length)
+                msg_end = self.divided_msg_build(command + b'_e', counter, b'', total_length)
+                return [msg, msg_end]
+
+            return msg
 
     def msg_parse(self) -> bool:
         """Parse an incoming message.
@@ -387,6 +393,7 @@ class Handler(asyncio.Protocol):
             msg = self.msg_build(command, msg_counter, data)
             self.push(msg)
             self.logger.info("PRUEBA1")
+            self.logger.info(len(msg))
             self.logger.info(msg)
             self.logger.info("---------------------")
         except MemoryError:
