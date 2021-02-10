@@ -667,7 +667,6 @@ void Zero_Eventinfo(Eventinfo *lf)
     lf->group_node_to_delete = NULL;
     lf->decoder_info = NULL_Decoder;
 
-    lf->diff = NULL;
     lf->previous = NULL;
     lf->labels = NULL;
 
@@ -837,9 +836,6 @@ void Free_Eventinfo(Eventinfo *lf)
         free(lf->fields);
     }
 
-    if (lf->diff) {
-        free(lf->diff);
-    }
     if (lf->previous) {
         free(lf->previous);
     }
@@ -1107,11 +1103,6 @@ void w_copy_event_for_log(Eventinfo *lf,Eventinfo *lf_cpy){
     /* Whodata fields */
 
     lf_cpy->r_firedtimes = lf->r_firedtimes;
-
-
-    if(lf->diff){
-        os_strdup(lf->diff,lf_cpy->diff);
-    }
 
     if(lf->previous){
         os_strdup(lf->previous,lf_cpy->previous);
