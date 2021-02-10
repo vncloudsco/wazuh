@@ -667,7 +667,6 @@ void Zero_Eventinfo(Eventinfo *lf)
     lf->group_node_to_delete = NULL;
     lf->decoder_info = NULL_Decoder;
 
-    lf->attributes_before = NULL;
     lf->diff = NULL;
     lf->previous = NULL;
     lf->labels = NULL;
@@ -838,9 +837,6 @@ void Free_Eventinfo(Eventinfo *lf)
         free(lf->fields);
     }
 
-    if (lf->attributes_before) {
-        free(lf->attributes_before);
-    }
     if (lf->diff) {
         free(lf->diff);
     }
@@ -1107,10 +1103,6 @@ void w_copy_event_for_log(Eventinfo *lf,Eventinfo *lf_cpy){
 
     /* SYSCHECK Results variables */
     lf_cpy->event_type = lf->event_type;
-
-    if(lf->attributes_before){
-        os_strdup(lf->attributes_before,lf_cpy->attributes_before);
-    }
 
     /* Whodata fields */
 
