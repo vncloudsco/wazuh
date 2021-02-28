@@ -47,33 +47,34 @@ static const char *FIM_EVENT_MODE[] = {
     "whodata"
 };
 
-void fim_delete_file_event(fdb_t *fim_sql, fim_entry *entry, pthread_mutex_t *mutex,
-                           __attribute__((unused))void *alert,
-                           __attribute__((unused))void *fim_ev_mode,
-                           __attribute__((unused))void *w_evt) {
-    int *send_alert = (int *) alert;
-    fim_event_mode mode = (fim_event_mode) fim_ev_mode;
+void fim_delete_file_event(fdb_t *fim_sql,
+                           fim_entry *entry,
+                           pthread_mutex_t *mutex,
+                           void *_evt_data,
+                           __attribute__((unused)) void *_unused_field_1,
+                           __attribute__((unused)) void *_unused_field_2) {
+    event_data_t *evt_data = (event_data_t *)_evt_data;
     int state = 0;
-    int pos = -1;
+    const directory_t *dir = NULL;
 
-    pos = fim_configuration_directory(entry->file_entry.path, "file");
+    dir = fim_configuration_directory(entry->file_entry.path);
 
-    if(pos == -1) {
+    if (dir == NULL) {
         mdebug2(FIM_DELETE_EVENT_PATH_NOCONF, entry->file_entry.path);
         return;
     }
     /* Don't send alert if received mode and mode in configuration aren't the same.
        Scheduled mode events must always be processed to preserve the state of the agent's DB.
     */
-    switch (mode) {
+    switch (evt_data->mode) {
     case FIM_REALTIME:
-        if (!(syscheck.opts[pos] & REALTIME_ACTIVE)) {
+        if (!(dir->options & REALTIME_ACTIVE)) {
             return;
         }
         break;
 
     case FIM_WHODATA:
-        if (!(syscheck.opts[pos] & WHODATA_ACTIVE)) {
+        if (!(dir->options & WHODATA_ACTIVE)) {
             return;
         }
         break;
@@ -88,17 +89,15 @@ void fim_delete_file_event(fdb_t *fim_sql, fim_entry *entry, pthread_mutex_t *mu
     state = fim_db_remove_path(fim_sql, entry->file_entry.path);
     w_mutex_unlock(mutex);
 
-    if (send_alert && state == FIMDB_OK) {
-        whodata_evt *whodata_event = (whodata_evt *) w_evt;
+    if (evt_data->report_event && state == FIMDB_OK) {
         cJSON *json_event = NULL;
         char *json_formatted = NULL;
 
         w_mutex_lock(mutex);
-        json_event = fim_json_event(entry->file_entry.path, NULL, entry->file_entry.data, pos, FIM_DELETE, mode,
-                                    whodata_event, NULL);
+        json_event = fim_json_event(entry, NULL, dir, evt_data, NULL);
         w_mutex_unlock(mutex);
 
-        if (syscheck.opts[pos] & CHECK_SEECHANGES) {
+        if (dir->options & CHECK_SEECHANGES) {
             fim_diff_process_delete_file(entry->file_entry.path);
         }
 
@@ -115,12 +114,11 @@ void fim_delete_file_event(fdb_t *fim_sql, fim_entry *entry, pthread_mutex_t *mu
 
 
 void fim_scan() {
-    int it = 0;
     struct timespec start;
     struct timespec end;
     clock_t cputime_start;
     int nodes_count = 0;
-    struct fim_element item;
+    const directory_t *dir_it;
 
     cputime_start = clock();
     gettime(&start);
@@ -135,19 +133,15 @@ void fim_scan() {
 
     w_mutex_lock(&syscheck.fim_scan_mutex);
 
-    while (syscheck.dir[it] != NULL) {
-        memset(&item, 0, sizeof(fim_element));
-        item.mode = FIM_SCHEDULED;
-        item.index = it;
+    foreach_array(dir_it, syscheck.directories) {
+        event_data_t evt_data = { .mode = FIM_SCHEDULED, .report_event = true, .w_evt = NULL };
 
-        fim_checker(fim_get_real_path(it), &item, NULL, 1);
+        fim_checker(fim_get_real_path(dir_it), &evt_data, dir_it);
 #ifndef WIN32
-        if (syscheck.opts[it] & REALTIME_ACTIVE) {
-            realtime_adddir(fim_get_real_path(it), 0, (syscheck.opts[it] & CHECK_FOLLOW) ? 1 : 0);
+        if (dir_it->options & REALTIME_ACTIVE) {
+            realtime_adddir(fim_get_real_path(dir_it), 0, (dir_it->options & CHECK_FOLLOW) ? 1 : 0);
         }
 #endif
-
-        it++;
     }
 
     w_mutex_unlock(&syscheck.fim_scan_mutex);
@@ -165,17 +159,12 @@ void fim_scan() {
     check_deleted_files();
 
     if (syscheck.file_limit_enabled && (nodes_count >= syscheck.file_limit)) {
-        it = 0;
-
         w_mutex_lock(&syscheck.fim_scan_mutex);
 
-        while ((syscheck.dir[it] != NULL) && (!syscheck.database->full)) {
-            memset(&item, 0, sizeof(fim_element));
-            item.mode = FIM_SCHEDULED;
-            item.index = it;
+        foreach_array(dir_it, syscheck.directories) {
+            event_data_t evt_data = { .mode = FIM_SCHEDULED, .report_event = true, .w_evt = NULL };
 
-            fim_checker(fim_get_real_path(it), &item, NULL, 0);
-            it++;
+            fim_checker(fim_get_real_path(dir_it), &evt_data, dir_it);
         }
 
         w_mutex_unlock(&syscheck.fim_scan_mutex);
@@ -224,9 +213,11 @@ void fim_scan() {
     }
 }
 
-void fim_checker(const char *path, fim_element *item, whodata_evt *w_evt, int report) {
-    int node;
+void fim_checker(const char *path, event_data_t *evt_data, const directory_t *configuration) {
+    const directory_t *node;
     int depth;
+    fim_entry *saved_entry = NULL;
+    struct stat statbuf;
 
 #ifdef WIN32
     // Ignore the recycle bin.
@@ -235,42 +226,43 @@ void fim_checker(const char *path, fim_element *item, whodata_evt *w_evt, int re
     }
 #endif
 
-    if (item->mode == FIM_SCHEDULED) {
-        // If the directory have another configuration will come back
-        if (node = fim_configuration_directory(path, "file"), node < 0 || item->index != node) {
-            return;
-        }
-    } else {
-        if (node = fim_configuration_directory(path, "file"), node < 0) {
-            return;
-        }
-    }
-
-    // We need to process every event generated by scheduled scans because we need to
-    // alert about discarded events of real-time and Whodata mode
-    if (item->mode != FIM_SCHEDULED && item->mode != FIM_MODE(syscheck.opts[node])) {
+    node = fim_configuration_directory(path);
+    if (node == NULL) {
         return;
     }
 
-    depth = fim_check_depth(path, node);
+    if (configuration == NULL) {
+        // First time entering fim_checker
+        // It's dangerous to go alone! Take this.
+        configuration = node;
+    }
 
-    if (depth > syscheck.recursion_level[node]) {
-        mdebug2(FIM_MAX_RECURSION_LEVEL, depth, syscheck.recursion_level[node], path);
+    if (evt_data->mode == FIM_SCHEDULED) {
+        // If the directory has another configuration will scan it with that configuration
+        if (configuration != node) {
+            return;
+        }
+    } else if (evt_data->mode != FIM_MODE(configuration->options)) {
+        // If this event is not generated by a scan, the mode of the event and
+        // the mode configured must match
         return;
     }
 
-    item->index = node;
-    item->configuration = syscheck.opts[node];
-    fim_entry *saved_entry = NULL;
+    depth = fim_check_depth(path, configuration);
+
+    if (depth > configuration->recursion_level) {
+        mdebug2(FIM_MAX_RECURSION_LEVEL, depth, configuration->recursion_level, path);
+        return;
+    }
 
     // Deleted file. Sending alert.
-    if (w_stat(path, &(item->statbuf)) == -1) {
+    if (w_stat(path, &statbuf) == -1) {
         if(errno != ENOENT) {
             mdebug1(FIM_STAT_FAILED, path, errno, strerror(errno));
             return;
         }
 
-        if (item->configuration & CHECK_SEECHANGES) {
+        if (configuration->options & CHECK_SEECHANGES) {
             fim_diff_process_delete_file(path);
         }
 
@@ -279,8 +271,8 @@ void fim_checker(const char *path, fim_element *item, whodata_evt *w_evt, int re
         w_mutex_unlock(&syscheck.fim_entry_mutex);
 
         if (saved_entry) {
-            fim_delete_file_event(syscheck.database, saved_entry, &syscheck.fim_entry_mutex, (void *) (int) true,
-                                 (void *) (fim_event_mode) item->mode, (void *) w_evt);
+            fim_delete_file_event(syscheck.database, saved_entry, &syscheck.fim_entry_mutex, (void *)(int)true,
+                                  (void *)evt_data, NULL);
             free_entry(saved_entry);
             saved_entry = NULL;
         }
@@ -300,7 +292,7 @@ void fim_checker(const char *path, fim_element *item, whodata_evt *w_evt, int re
         return;
     }
 
-    switch(item->statbuf.st_mode & S_IFMT) {
+    switch (statbuf.st_mode & S_IFMT) {
 #ifndef WIN32
     case FIM_LINK:
         // Fallthrough
@@ -310,34 +302,34 @@ void fim_checker(const char *path, fim_element *item, whodata_evt *w_evt, int re
             return;
         }
 
-        if (fim_check_restrict (path, syscheck.filerestrict[item->index]) == 1) {
+        if (fim_check_restrict(path, configuration->filerestrict) == 1) {
             return;
         }
 
         check_max_fps();
 
-        if (fim_file(path, item, w_evt, report) < 0) {
+        if (fim_file(path, configuration, evt_data, &statbuf) < 0) {
             mwarn(FIM_WARN_SKIP_EVENT, path);
         }
         break;
 
     case FIM_DIRECTORY:
-        if (depth == syscheck.recursion_level[node]) {
+        if (depth == configuration->recursion_level) {
             mdebug2(FIM_DIR_RECURSION_LEVEL, path, depth);
             return;
         }
 #ifndef WIN32
-        if (item->configuration & REALTIME_ACTIVE) {
-            realtime_adddir(path, 0, (item->configuration & CHECK_FOLLOW) ? 1 : 0);
+        if (configuration->options & REALTIME_ACTIVE) {
+            realtime_adddir(path, 0, (configuration->options & CHECK_FOLLOW) ? 1 : 0);
         }
 #endif
-        fim_directory(path, item, w_evt, report);
+        fim_directory(path, evt_data);
         break;
     }
 }
 
 
-int fim_directory (const char *dir, fim_element *item, whodata_evt *w_evt, int report) {
+int fim_directory(const char *dir, event_data_t *evt_data) {
     DIR *dp;
     struct dirent *entry;
     char *f_name;
@@ -380,7 +372,7 @@ int fim_directory (const char *dir, fim_element *item, whodata_evt *w_evt, int r
         str_lowercase(f_name);
 #endif
         // Process the event related to f_name
-        fim_checker(f_name, item, w_evt, report);
+        fim_checker(f_name, evt_data, NULL);
     }
 
     os_free(f_name);
@@ -389,43 +381,44 @@ int fim_directory (const char *dir, fim_element *item, whodata_evt *w_evt, int r
 }
 
 
-int fim_file(const char *file, fim_element *item, whodata_evt *w_evt, int report) {
+int fim_file(const char *path, const directory_t *configuration, event_data_t *evt_data, const struct stat *statbuf) {
+    fim_entry new;
     fim_entry *saved = NULL;
-    fim_file_data *new = NULL;
     cJSON *json_event = NULL;
     char *json_formated;
-    int alert_type;
     int result;
     char *diff = NULL;
 
     w_mutex_lock(&syscheck.fim_entry_mutex);
 
-    //Get file attributes
-    if (new = fim_get_data(file, item), !new) {
-        mdebug1(FIM_GET_ATTRIBUTES, file);
+    new.file_entry.path = (char *)path;
+    new.file_entry.data = fim_get_data(path, configuration, statbuf);
+    if (new.file_entry.data == NULL) {
+        mdebug1(FIM_GET_ATTRIBUTES, path);
         w_mutex_unlock(&syscheck.fim_entry_mutex);
         return 0;
     }
 
-    if (saved = fim_db_get_path(syscheck.database, file), !saved) {
+    if (saved = fim_db_get_path(syscheck.database, path), !saved) {
         // New entry. Insert into hash table
-        alert_type = FIM_ADD;
+        evt_data->type = FIM_ADD;
     } else {
         // Checking for changes
-        alert_type = FIM_MODIFICATION;
+        evt_data->type = FIM_MODIFICATION;
     }
 
-    if (item->configuration & CHECK_SEECHANGES) {
-        diff = fim_file_diff(file);
+    if (configuration->options & CHECK_SEECHANGES) {
+        diff = fim_file_diff(path);
     }
 
-    json_event = fim_json_event(file, saved ? saved->file_entry.data : NULL, new, item->index, alert_type, item->mode, w_evt, diff);
+    json_event = fim_json_event(&new, saved ? saved->file_entry.data : NULL, configuration, evt_data, diff);
 
     os_free(diff);
 
     if (json_event) {
-        if (result = fim_db_insert(syscheck.database, file, new, saved ? saved->file_entry.data : NULL), result < 0) {
-            free_file_data(new);
+        if (result = fim_db_insert(syscheck.database, path, new.file_entry.data, saved ? saved->file_entry.data : NULL),
+            result < 0) {
+            free_file_data(new.file_entry.data);
             free_entry(saved);
             w_mutex_unlock(&syscheck.fim_entry_mutex);
             cJSON_Delete(json_event);
@@ -434,18 +427,18 @@ int fim_file(const char *file, fim_element *item, whodata_evt *w_evt, int report
         }
     }
 
-    fim_db_set_scanned(syscheck.database, file);
+    fim_db_set_scanned(syscheck.database, path);
 
     w_mutex_unlock(&syscheck.fim_entry_mutex);
 
-    if (json_event && _base_line && report) {
+    if (json_event && _base_line && evt_data->report_event) {
         json_formated = cJSON_PrintUnformatted(json_event);
         send_syscheck_msg(json_formated);
         os_free(json_formated);
     }
 
     cJSON_Delete(json_event);
-    free_file_data(new);
+    free_file_data(new.file_entry.data);
     free_entry(saved);
 
     return 0;
@@ -453,20 +446,19 @@ int fim_file(const char *file, fim_element *item, whodata_evt *w_evt, int report
 
 
 void fim_realtime_event(char *file) {
-
     struct stat file_stat;
 
     // If the file exists, generate add or modify events.
     if (w_stat(file, &file_stat) >= 0) {
+        event_data_t evt_data = { .mode = FIM_REALTIME, .w_evt = NULL, .report_event = true };
+
         /* Need a sleep here to avoid triggering on vim
          * (and finding the file removed)
          */
         fim_rt_delay();
 
-        fim_element item = { .mode = FIM_REALTIME };
-        fim_checker(file, &item, NULL, 1);
-    }
-    else {
+        fim_checker(file, &evt_data, NULL);
+    } else {
         // Otherwise, it could be a file deleted or a directory moved (or renamed).
         fim_process_missing_entry(file, FIM_REALTIME, NULL);
     }
@@ -478,31 +470,31 @@ void fim_whodata_event(whodata_evt * w_evt) {
 
     // If the file exists, generate add or modify events.
     if(w_stat(w_evt->path, &file_stat) >= 0) {
+        event_data_t evt_data = { .mode = FIM_WHODATA, .w_evt = w_evt, .report_event = true };
+
         fim_rt_delay();
 
-        fim_element item = { .mode = FIM_WHODATA };
-        fim_checker(w_evt->path, &item, w_evt, 1);
-    }
-    // Otherwise, it could be a file deleted or a directory moved (or renamed).
-    else {
-            fim_process_missing_entry(w_evt->path, FIM_WHODATA, w_evt);
-        #ifndef WIN32
-            char** paths = NULL;
-            const unsigned long int inode = strtoul(w_evt->inode,NULL,10);
-            const unsigned long int dev = strtoul(w_evt->dev,NULL,10);
+        fim_checker(w_evt->path, &evt_data, NULL);
+    } else {
+        // Otherwise, it could be a file deleted or a directory moved (or renamed).
+        fim_process_missing_entry(w_evt->path, FIM_WHODATA, w_evt);
+#ifndef WIN32
+        char** paths = NULL;
+        const unsigned long int inode = strtoul(w_evt->inode,NULL,10);
+        const unsigned long int dev = strtoul(w_evt->dev,NULL,10);
 
-            w_mutex_lock(&syscheck.fim_entry_mutex);
-            paths = fim_db_get_paths_from_inode(syscheck.database, inode, dev);
-            w_mutex_unlock(&syscheck.fim_entry_mutex);
+        w_mutex_lock(&syscheck.fim_entry_mutex);
+        paths = fim_db_get_paths_from_inode(syscheck.database, inode, dev);
+        w_mutex_unlock(&syscheck.fim_entry_mutex);
 
-            if(paths) {
-                for(int i = 0; paths[i]; i++) {
-                    fim_process_missing_entry(paths[i], FIM_WHODATA, w_evt);
-                    os_free(paths[i]);
-                }
-                os_free(paths);
+        if(paths) {
+            for(int i = 0; paths[i]; i++) {
+                fim_process_missing_entry(paths[i], FIM_WHODATA, w_evt);
+                os_free(paths[i]);
             }
-        #endif
+            os_free(paths);
+        }
+#endif
     }
 }
 
@@ -518,8 +510,8 @@ void fim_process_missing_entry(char * pathname, fim_event_mode mode, whodata_evt
 
     // Exists, create event.
     if (saved_data) {
-        fim_element item = { .mode = mode };
-        fim_checker(pathname, &item, w_evt, 1);
+        event_data_t evt_data = { .mode = mode, .w_evt = w_evt, .report_event = true };
+        fim_checker(pathname, &evt_data, NULL);
         free_entry(saved_data);
         return;
     }
@@ -637,50 +629,45 @@ void fim_check_db_state() {
 }
 
 // Returns the position of the path into directories array
-int fim_configuration_directory(const char *path, const char *entry) {
+directory_t *fim_configuration_directory(const char *path) {
     char full_path[OS_SIZE_4096 + 1] = {'\0'};
     char full_entry[OS_SIZE_4096 + 1] = {'\0'};
-    int it = 0;
+    directory_t *dir_it = NULL;
+    directory_t *dir = NULL;
     int top = 0;
     int match = 0;
-    int position = -1;
 
     if (!path || *path == '\0') {
-        return position;
+        return NULL;
     }
 
     trail_path_separator(full_path, path, sizeof(full_path));
 
-    if (strcmp("file", entry) == 0) {
-        while(syscheck.dir[it]) {
-            trail_path_separator(full_entry, fim_get_real_path(it), sizeof(full_entry));
-            match = w_compare_str(full_entry, full_path);
+    foreach_array(dir_it, syscheck.directories) {
+        trail_path_separator(full_entry, fim_get_real_path(dir_it), sizeof(full_entry));
+        match = w_compare_str(full_entry, full_path);
 
-            if (top < match && full_path[match - 1] == PATH_SEP) {
-                position = it;
-                top = match;
-            }
-            it++;
+        if (top < match && full_path[match - 1] == PATH_SEP) {
+            dir = dir_it;
+            top = match;
         }
     }
 
-    if (position == -1) {
-        mdebug2(FIM_CONFIGURATION_NOTFOUND, entry, path);
+    if (dir == NULL) {
+        mdebug2(FIM_CONFIGURATION_NOTFOUND, "file", path);
     }
 
-    return position;
+    return dir;
 }
 
-int fim_check_depth(const char * path, int dir_position) {
+int fim_check_depth(const char *path, const directory_t *configuration) {
     const char * pos;
     int depth = -1;
     unsigned int parent_path_size;
 
-    if (syscheck.dir[dir_position] == NULL && syscheck.symbolic_links[dir_position] == NULL) {
-        return -1;
-    }
+    assert(configuration != NULL);
 
-    parent_path_size = strlen(fim_get_real_path(dir_position));
+    parent_path_size = strlen(fim_get_real_path(configuration));
 
     if (parent_path_size > strlen(path)) {
         return -1;
@@ -713,17 +700,17 @@ int fim_check_depth(const char * path, int dir_position) {
 
 
 // Get data from file
-fim_file_data * fim_get_data(const char *file, fim_element *item) {
+fim_file_data *fim_get_data(const char *file, const directory_t *configuration, const struct stat *statbuf) {
     fim_file_data * data = NULL;
 
     os_calloc(1, sizeof(fim_file_data), data);
     init_fim_data_entry(data);
 
-    if (item->configuration & CHECK_SIZE) {
-        data->size = item->statbuf.st_size;
+    if (configuration->options & CHECK_SIZE) {
+        data->size = statbuf->st_size;
     }
 
-    if (item->configuration & CHECK_PERM) {
+    if (configuration->options & CHECK_PERM) {
 #ifdef WIN32
         int error;
         char perm[OS_SIZE_6144 + 1];
@@ -736,44 +723,44 @@ fim_file_data * fim_get_data(const char *file, fim_element *item) {
             data->perm = decode_win_permissions(perm);
         }
 #else
-        data->perm = agent_file_perm(item->statbuf.st_mode);
+        data->perm = agent_file_perm(statbuf->st_mode);
 #endif
     }
 
 #ifdef WIN32
-    if (item->configuration & CHECK_ATTRS) {
+    if (configuration->options & CHECK_ATTRS) {
         os_calloc(OS_SIZE_256, sizeof(char), data->attributes);
         decode_win_attributes(data->attributes, w_get_file_attrs(file));
     }
 #endif
 
-    if (item->configuration & CHECK_MTIME) {
+    if (configuration->options & CHECK_MTIME) {
 #ifdef WIN32
         data->mtime = get_UTC_modification_time(file);
 #else
-        data->mtime = item->statbuf.st_mtime;
+        data->mtime = statbuf->st_mtime;
 #endif
     }
 
 #ifdef WIN32
-    if (item->configuration & CHECK_OWNER) {
+    if (configuration->options & CHECK_OWNER) {
         data->user_name = get_file_user(file, &data->uid);
     }
 #else
-    if (item->configuration & CHECK_OWNER) {
+    if (configuration->options & CHECK_OWNER) {
         char aux[OS_SIZE_64];
-        snprintf(aux, OS_SIZE_64, "%u", item->statbuf.st_uid);
+        snprintf(aux, OS_SIZE_64, "%u", statbuf->st_uid);
         os_strdup(aux, data->uid);
 
-        data->user_name = get_user(item->statbuf.st_uid);
+        data->user_name = get_user(statbuf->st_uid);
     }
 
-    if (item->configuration & CHECK_GROUP) {
+    if (configuration->options & CHECK_GROUP) {
         char aux[OS_SIZE_64];
-        snprintf(aux, OS_SIZE_64, "%u", item->statbuf.st_gid);
+        snprintf(aux, OS_SIZE_64, "%u", statbuf->st_gid);
         os_strdup(aux, data->gid);
 
-        data->group_name = get_group(item->statbuf.st_gid);
+        data->group_name = get_group(statbuf->st_gid);
     }
 #endif
 
@@ -785,41 +772,31 @@ fim_file_data * fim_get_data(const char *file, fim_element *item) {
     data->scanned = 1;
 
     // We won't calculate hash for symbolic links, empty or large files
-    if ((item->statbuf.st_mode & S_IFMT) == FIM_REGULAR)
-        if (item->statbuf.st_size > 0 &&
-                (size_t)item->statbuf.st_size < syscheck.file_max_size &&
-                ( item->configuration & CHECK_MD5SUM ||
-                item->configuration & CHECK_SHA1SUM ||
-                item->configuration & CHECK_SHA256SUM ) ) {
-            if (OS_MD5_SHA1_SHA256_File(file,
-                                        syscheck.prefilter_cmd,
-                                        data->hash_md5,
-                                        data->hash_sha1,
-                                        data->hash_sha256,
-                                        OS_BINARY,
-                                        syscheck.file_max_size) < 0) {
-                mdebug1(FIM_HASHES_FAIL, file);
-                free_file_data(data);
-                return NULL;
+    if (S_ISREG(statbuf->st_mode) && (statbuf->st_size > 0 && (size_t)statbuf->st_size < syscheck.file_max_size) &&
+        (configuration->options & (CHECK_MD5SUM | CHECK_SHA1SUM | CHECK_SHA256SUM))) {
+        if (OS_MD5_SHA1_SHA256_File(file, syscheck.prefilter_cmd, data->hash_md5, data->hash_sha1, data->hash_sha256,
+                                    OS_BINARY, syscheck.file_max_size) < 0) {
+            mdebug1(FIM_HASHES_FAIL, file);
+            free_file_data(data);
+            return NULL;
         }
     }
 
-    if (!(item->configuration & CHECK_MD5SUM)) {
+    if (!(configuration->options & CHECK_MD5SUM)) {
         data->hash_md5[0] = '\0';
     }
 
-    if (!(item->configuration & CHECK_SHA1SUM)) {
+    if (!(configuration->options & CHECK_SHA1SUM)) {
         data->hash_sha1[0] = '\0';
     }
 
-    if (!(item->configuration & CHECK_SHA256SUM)) {
+    if (!(configuration->options & CHECK_SHA256SUM)) {
         data->hash_sha256[0] = '\0';
     }
 
-    data->inode = item->statbuf.st_ino;
-    data->dev = item->statbuf.st_dev;
-    data->mode = item->mode;
-    data->options = item->configuration;
+    data->inode = statbuf->st_ino;
+    data->dev = statbuf->st_dev;
+    data->options = configuration->options;
     data->last_event = time(NULL);
     data->scanned = 1;
     fim_get_checksum(data);
@@ -898,18 +875,17 @@ void check_deleted_files() {
     }
 }
 
-cJSON *fim_json_event(const char *file_name,
-                      fim_file_data *old_data,
-                      fim_file_data *new_data,
-                      int pos,
-                      unsigned int type,
-                      fim_event_mode mode,
-                      whodata_evt *w_evt,
+cJSON *fim_json_event(const fim_entry *new_data,
+                      const fim_file_data *old_data,
+                      const directory_t *configuration,
+                      const event_data_t *evt_data,
                       const char *diff) {
     cJSON * changed_attributes = NULL;
 
+    assert(new_data != NULL);
+
     if (old_data != NULL) {
-        changed_attributes = fim_json_compare_attrs(old_data, new_data);
+        changed_attributes = fim_json_compare_attrs(old_data, new_data->file_entry.data);
 
         // If no such changes, do not send event.
 
@@ -925,20 +901,22 @@ cJSON *fim_json_event(const char *file_name,
     cJSON * data = cJSON_CreateObject();
     cJSON_AddItemToObject(json_event, "data", data);
 
-    cJSON_AddStringToObject(data, "path", file_name);
-    cJSON_AddStringToObject(data, "mode", FIM_EVENT_MODE[mode]);
-    cJSON_AddStringToObject(data, "type", FIM_EVENT_TYPE[type]);
-    cJSON_AddNumberToObject(data, "timestamp", new_data->last_event);
+    cJSON_AddStringToObject(data, "path", new_data->file_entry.path);
+    cJSON_AddStringToObject(data, "mode", FIM_EVENT_MODE[evt_data->mode]);
+    cJSON_AddStringToObject(data, "type", FIM_EVENT_TYPE[evt_data->type]);
+    cJSON_AddNumberToObject(data, "timestamp", new_data->file_entry.data->last_event);
 
 #ifndef WIN32
     char** paths = NULL;
 
-    if (paths = fim_db_get_paths_from_inode(syscheck.database, new_data->inode, new_data->dev), paths){
+    if (paths = fim_db_get_paths_from_inode(syscheck.database, new_data->file_entry.data->inode,
+                                            new_data->file_entry.data->dev),
+        paths) {
         if (paths[0] && paths[1]) {
             cJSON *hard_links = cJSON_CreateArray();
             int i;
             for(i = 0; paths[i]; i++) {
-                if(strcmp(file_name, paths[i])) {
+                if (strcmp(new_data->file_entry.path, paths[i])) {
                     cJSON_AddItemToArray(hard_links, cJSON_CreateString(paths[i]));
                 }
                 os_free(paths[i]);
@@ -951,7 +929,7 @@ cJSON *fim_json_event(const char *file_name,
     }
 #endif
 
-    cJSON_AddItemToObject(data, "attributes", fim_attributes_json(new_data));
+    cJSON_AddItemToObject(data, "attributes", fim_attributes_json(new_data->file_entry.data));
 
     if (old_data) {
         cJSON_AddItemToObject(data, "changed_attributes", changed_attributes);
@@ -959,11 +937,11 @@ cJSON *fim_json_event(const char *file_name,
     }
 
     char * tags = NULL;
-    if (w_evt) {
-        cJSON_AddItemToObject(data, "audit", fim_audit_json(w_evt));
+    if (evt_data->w_evt) {
+        cJSON_AddItemToObject(data, "audit", fim_audit_json(evt_data->w_evt));
     }
 
-    tags = syscheck.tag[pos];
+    tags = configuration->tag;
 
     if (diff != NULL) {
         cJSON_AddStringToObject(data, "content_changes", diff);
@@ -1277,22 +1255,22 @@ void fim_print_info(struct timespec start, struct timespec end, clock_t cputime_
     return;
 }
 
-const char *fim_get_real_path(int position) {
+const char *fim_get_real_path(const directory_t *dir) {
 #ifndef WIN32
-    if ((syscheck.opts[position] & CHECK_FOLLOW) == 0) {
-        return syscheck.dir[position];
+    if ((dir->options & CHECK_FOLLOW) == 0) {
+        return dir->path;
     }
 
-    if (syscheck.symbolic_links[position]) {
-        return syscheck.symbolic_links[position];
+    if (dir->symbolic_links) {
+        return dir->symbolic_links;
     }
 
-    if (IsLink(syscheck.dir[position]) == 0) { // Broken link
+    if (IsLink(dir->path) == 0) { // Broken link
         return "";
     }
 #endif // WIN32
 
-    return syscheck.dir[position];
+    return dir->path;
 }
 
 // Sleep during rt_delay milliseconds

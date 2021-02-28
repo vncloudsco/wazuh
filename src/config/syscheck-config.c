@@ -21,106 +21,49 @@ static void process_option(char ***syscheck_option, xml_node *node);
 /* Set check_all options in a directory/file */
 static void fim_set_check_all(int *opt);
 
+static void free_directory(directory_t *dir);
 
-void organize_syscheck_dirs(syscheck_config *syscheck)
-{
-    if (syscheck->dir && syscheck->dir[0]) {
-        char **dir;
-        char **symbolic_links;
-        char **tag;
-        OSMatch **filerestrict;
-        int *opts;
-        int *recursion_level;
-        int *diff_size;
+void organize_syscheck_dirs(syscheck_config *syscheck) {
+    directory_t *current;
+    int i;
+    int ordered;
 
-        int i;
-        int j;
-        int dirs = 0;
+    if (syscheck->directories == NULL || syscheck->directories[0] == NULL) {
+        mdebug2("No directory entries to organize in syscheck configuration.");
+        return;
+    }
 
-        while (syscheck->dir[dirs] != NULL) {
-            dirs++;
-        }
+    do {
+        ordered = true;
 
-        os_calloc(dirs + 1, sizeof(char *), dir);
-        os_calloc(dirs + 1, sizeof(char *), symbolic_links);
-        os_calloc(dirs + 1, sizeof(char *), tag);
-        os_calloc(dirs + 1, sizeof(OSMatch *), filerestrict);
-        os_calloc(dirs + 1, sizeof(int), opts);
-        os_calloc(dirs + 1, sizeof(int), recursion_level);
-        os_calloc(dirs + 1, sizeof(int), diff_size);
-
-        for (i = 0; i < dirs; ++i) {
-
-            char *current = NULL;
-            int pos = -1;
-
-            for (j = 0; j < dirs; ++j) {
-
-                if (syscheck->dir[j] == NULL) {
-                    continue;
-                }
-
-                if (current == NULL) {
-                    current = syscheck->dir[j];
-                    pos = j;
-                    continue;
-                }
-
-                if (strcmp(current, syscheck->dir[j]) > 0) {
-                    current = syscheck->dir[j];
-                    pos = j;
-                }
+        for (i = 0; syscheck->directories[i + 1]; i++) {
+            if (strcmp(syscheck->directories[i]->path, syscheck->directories[i + 1]->path) <= 0) {
+                continue;
             }
 
-            dir[i] = current;
-            dir[i + 1] = NULL;
-
-            symbolic_links[i] = (syscheck->symbolic_links[pos]) ? syscheck->symbolic_links[pos] : NULL;
-            symbolic_links[i + 1] = NULL;
-
-            tag[i] = (syscheck->tag[pos]) ? syscheck->tag[pos] : NULL;
-            tag[i + 1] = NULL;
-
-            filerestrict[i] = (syscheck->filerestrict[pos]) ? syscheck->filerestrict[pos] : NULL;
-            filerestrict[i + 1] = NULL;
-
-            opts[i] = syscheck->opts[pos];
-            opts[i + 1] = 0;
-
-            recursion_level[i] = syscheck->recursion_level[pos];
-            recursion_level[i + 1] = 0;
-
-            diff_size[i] = syscheck->diff_size_limit[pos];
-            diff_size[i + 1] = 0;
-
-            syscheck->dir[pos] = NULL;
-
+            current = syscheck->directories[i];
+            syscheck->directories[i] = syscheck->directories[i + 1];
+            syscheck->directories[i + 1] = current;
+            ordered = false;
         }
 
-        os_free(syscheck->dir);
-        syscheck->dir = dir;
+        if (ordered == true) {
+            break;
+        }
 
-        os_free(syscheck->symbolic_links);
-        syscheck->symbolic_links = symbolic_links;
+        // We sweep on the opposite direction now
+        for (; i != 0; i--) {
+            if (strcmp(syscheck->directories[i - 1]->path, syscheck->directories[i]->path) <= 0) {
+                continue;
+            }
 
-        os_free(syscheck->tag);
-        syscheck->tag = tag;
+            current = syscheck->directories[i];
+            syscheck->directories[i] = syscheck->directories[i - 1];
+            syscheck->directories[i - 1] = current;
+            ordered = false;
+        }
 
-        os_free(syscheck->filerestrict);
-        syscheck->filerestrict = filerestrict;
-
-        os_free(syscheck->opts);
-        syscheck->opts = opts;
-
-        os_free(syscheck->recursion_level);
-        syscheck->recursion_level = recursion_level;
-
-        os_free(syscheck->diff_size_limit);
-        syscheck->diff_size_limit = diff_size;
-    }
-    else {
-        mdebug2("No directory entries to organize in syscheck configuration.");
-    }
+    } while (ordered == false);
 }
 
 void dump_syscheck_file(syscheck_config *syscheck,
@@ -131,150 +74,61 @@ void dump_syscheck_file(syscheck_config *syscheck,
                         const char *tag,
                         const char *link,
                         int diff_size) {
+    directory_t *new_entry;
+    directory_t *dir_it;
+    int i = 0;
 
-    unsigned int pl = 0;
-    int overwrite = -1;
-    int j;
+    os_calloc(1, sizeof(directory_t), new_entry);
 
-    for (j = 0; syscheck->dir && syscheck->dir[j]; j++) {
-        /* Duplicate entry */
-        if (strcmp(syscheck->dir[j], entry) == 0) {
-            mdebug2("Overwriting the file entry %s", entry);
-            overwrite = j;
-        }
-    }
-
-    /* If overwrite < 0, syscheck entry is added at the end */
-    if (overwrite != -1) {
-        pl = overwrite;
-    }
-
-    if (syscheck->dir == NULL) {
-        os_calloc(2, sizeof(char *), syscheck->dir);
-
-        // If a symbolic link is configured, `link` is the configured path
-        // and `entry` is the resolved path
-        os_strdup(link == NULL ? entry : link, syscheck->dir[pl]);
-
-        syscheck->dir[1] = NULL;
-
-#ifdef WIN32
-        os_calloc(2, sizeof(whodata_dir_status), syscheck->wdata.dirs_status);
-#endif
-        os_calloc(2, sizeof(char *), syscheck->symbolic_links);
-
-        syscheck->symbolic_links[0] = NULL;
-        syscheck->symbolic_links[1] = NULL;
-
-        if (link != NULL && (CHECK_FOLLOW & vals)) {
-            os_strdup(entry, syscheck->symbolic_links[0]);
-        }
-
-        os_calloc(2, sizeof(int), syscheck->opts);
-        syscheck->opts[0] = vals;
-
-        os_calloc(2, sizeof(int), syscheck->diff_size_limit);
-
-        // If diff_size has not been set in read_attr, assign -1 to modify it later with the global value
-        if (diff_size == -1) {
-            syscheck->diff_size_limit[0] = -1;
-        } else {
-            syscheck->diff_size_limit[0] = diff_size;
-        }
-
-        os_calloc(2, sizeof(OSMatch *), syscheck->filerestrict);
-
-        os_calloc(2, sizeof(int), syscheck->recursion_level);
-        syscheck->recursion_level[0] = recursion_limit;
-
-        os_calloc(2, sizeof(char *), syscheck->tag);
-    } else if (overwrite < 0) {
-        while (syscheck->dir[pl] != NULL) {
-            pl++;
-        }
-
-        os_realloc(syscheck->dir, (pl + 2) * sizeof(char *), syscheck->dir);
-
-        os_strdup(link == NULL ? entry : link, syscheck->dir[pl]);
-
-        syscheck->dir[pl + 1] = NULL;
-
-#ifdef WIN32
-        os_realloc(syscheck->wdata.dirs_status, (pl + 2) * sizeof(whodata_dir_status), syscheck->wdata.dirs_status);
-        memset(syscheck->wdata.dirs_status + pl, 0, 2 * sizeof(whodata_dir_status));
-#endif
-
-        os_realloc(syscheck->symbolic_links, (pl + 2) * sizeof(char *), syscheck->symbolic_links);
-
-        syscheck->symbolic_links[pl] = NULL;
-        syscheck->symbolic_links[pl + 1] = NULL;
-
-        if (link != NULL && (CHECK_FOLLOW & vals)) {
-            os_strdup(entry, syscheck->symbolic_links[pl]);
-        }
-
-        os_realloc(syscheck->opts, (pl + 2) * sizeof(int), syscheck->opts);
-        syscheck->opts[pl] = vals;
-        syscheck->opts[pl + 1] = 0;
-
-        os_realloc(syscheck->diff_size_limit, (pl + 2) * sizeof(int), syscheck->diff_size_limit);
-
-        if (diff_size == -1) {
-            syscheck->diff_size_limit[pl] = -1;
-        } else {
-            syscheck->diff_size_limit[pl] = diff_size;
-        }
-
-        syscheck->diff_size_limit[pl + 1] = 0;
-
-        os_realloc(syscheck->filerestrict, (pl + 2) * sizeof(OSMatch *), syscheck->filerestrict);
-        syscheck->filerestrict[pl] = NULL;
-        syscheck->filerestrict[pl + 1] = NULL;
-
-        os_realloc(syscheck->recursion_level, (pl + 2) * sizeof(int), syscheck->recursion_level);
-        syscheck->recursion_level[pl] = recursion_limit;
-        syscheck->recursion_level[pl + 1] = 0;
-
-        os_realloc(syscheck->tag, (pl + 2) * sizeof(char *), syscheck->tag);
-        syscheck->tag[pl] = NULL;
-        syscheck->tag[pl + 1] = NULL;
+    if (link == NULL) {
+        os_strdup(entry, new_entry->path);
     } else {
-        os_free(syscheck->dir[pl]);
-        os_free(syscheck->symbolic_links[pl]);
-
-        os_strdup(link == NULL ? entry : link, syscheck->dir[pl]);
-        if (link != NULL && (CHECK_FOLLOW & vals)) {
-            os_strdup(entry, syscheck->symbolic_links[pl]);
+        os_strdup(link, new_entry->path);
+        if (CHECK_FOLLOW & vals) {
+            os_strdup(entry, new_entry->path);
         }
-
-        syscheck->opts[pl] = vals;
-
-        if (diff_size == -1) {
-            syscheck->diff_size_limit[pl] = -1;
-        } else {
-            syscheck->diff_size_limit[pl] = diff_size;
-        }
-
-        os_free(syscheck->filerestrict[pl]);
-        syscheck->recursion_level[pl] = recursion_limit;
-        os_free(syscheck->tag[pl]);
     }
+
+    new_entry->options = vals;
+    new_entry->diff_size_limit = diff_size;
+    new_entry->recursion_level = recursion_limit;
 
     if (restrictfile) {
-        os_calloc(1, sizeof(OSMatch), syscheck->filerestrict[pl]);
-        if (!OSMatch_Compile(restrictfile, syscheck->filerestrict[pl], 0)) {
-            OSMatch *ptm;
-
-            ptm = syscheck->filerestrict[pl];
-
-            merror(REGEX_COMPILE, restrictfile, ptm->error);
-            free(syscheck->filerestrict[pl]);
-            syscheck->filerestrict[pl] = NULL;
+        os_calloc(1, sizeof(OSMatch), new_entry->filerestrict);
+        if (!OSMatch_Compile(restrictfile, new_entry->filerestrict, 0)) {
+            merror(REGEX_COMPILE, restrictfile, new_entry->filerestrict->error);
+            os_free(new_entry->filerestrict);
         }
     }
+
     if (tag) {
-        os_strdup(tag, syscheck->tag[pl]);
+        os_strdup(tag, new_entry->tag);
     }
+
+    // Now we find where to place this new entry
+    if (syscheck->directories == NULL) {
+        os_calloc(2, sizeof(directory_t *), syscheck->directories);
+
+        syscheck->directories[0] = new_entry;
+        return;
+    }
+
+    foreach_array(dir_it, syscheck->directories) {
+        if (strcmp(dir_it->path, new_entry->path) != 0) {
+            continue;
+        }
+
+        // Duplicated entry, replace existing with new one
+        free_directory(dir_it);
+        dir_it = new_entry;
+
+        return;
+    }
+
+    // Add as new entry
+    os_realloc(syscheck->directories, (i + 2) * sizeof(directory_t *), syscheck->directories);
+    syscheck->directories[i] = new_entry;
+    syscheck->directories[i + 1] = NULL;
 }
 
 #ifdef WIN32
@@ -2263,12 +2117,26 @@ int Test_Syscheck(const char * path){
     }
 }
 
+static void free_directory(directory_t *dir) {
+    if (dir == NULL) {
+        return;
+    }
+
+    os_free(dir->path);
+    os_free(dir->symbolic_links);
+    os_free(dir->tag);
+
+    if (dir->filerestrict) {
+        OSMatch_FreePattern(dir->filerestrict);
+        free(dir->filerestrict);
+    }
+
+    free(dir);
+}
+
 void Free_Syscheck(syscheck_config * config) {
     if (config) {
         int i;
-        if (config->opts) {
-            free(config->opts);
-        }
         if (config->scan_day) {
             free(config->scan_day);
         }
@@ -2301,40 +2169,14 @@ void Free_Syscheck(syscheck_config * config) {
             }
             free(config->nodiff_regex);
         }
-        if (config->dir) {
-            for (i=0; config->dir[i] != NULL; i++) {
-                free(config->dir[i]);
-                if(config->filerestrict && config->filerestrict[i]) {
-                    OSMatch_FreePattern(config->filerestrict[i]);
-                    free(config->filerestrict[i]);
-                }
-                if(config->tag && config->tag[i]) {
-                    free(config->tag[i]);
-                }
+        if (config->directories) {
+            for (i = 0; config->directories[i] != NULL; i++) {
+                free_directory(config->directories[i]);
             }
-            free(config->dir);
-            if (config->filerestrict) {
-                free(config->filerestrict);
-            }
-            if (config->tag) {
-                free(config->tag);
-            }
-        }
-        if (config->symbolic_links) {
-            for (i=0; config->symbolic_links[i] != NULL; i++) {
-                free(config->symbolic_links[i]);
-            }
-            free(config->symbolic_links);
-        }
-        if (config->recursion_level) {
-            free(config->recursion_level);
+            free(config->directories);
         }
 
-        if (config->diff_size_limit) {
-            os_free(config->diff_size_limit);
-        }
-
-    #ifdef WIN32
+#ifdef WIN32
         if (config->key_ignore) {
             for (i=0; config->key_ignore[i].entry != NULL; i++) {
                 free(config->key_ignore[i].entry);

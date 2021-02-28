@@ -147,7 +147,12 @@ int fim_db_delete_not_scanned(fdb_t * fim_sql, fim_tmp_file *file, pthread_mutex
                                     (void *) true, (void *) FIM_SCHEDULED, NULL);
 }
 
-int fim_db_delete_range(fdb_t * fim_sql, fim_tmp_file *file, pthread_mutex_t *mutex, int storage, fim_event_mode mode, int *configuration) {
+int fim_db_delete_range(fdb_t *fim_sql,
+                        fim_tmp_file *file,
+                        pthread_mutex_t *mutex,
+                        int storage,
+                        fim_event_mode mode,
+                        const directory_t *configuration) {
     return fim_db_process_read_file(fim_sql, file, FIM_TYPE_FILE, mutex, fim_db_remove_validated_path, storage,
                                     (void *) false, (void *) mode, (void *) configuration);
 }
@@ -504,10 +509,10 @@ void fim_db_remove_validated_path(fdb_t *fim_sql,
                                   void *alert,
                                   void *fim_ev_mode,
                                   void *configuration) {
-    int *original_configuration = (int *)configuration;
-    int validated_configuration = fim_configuration_directory(entry->file_entry.path, "file");
+    const directory_t *original_configuration = (const directory_t *)configuration;
+    directory_t *validated_configuration = fim_configuration_directory(entry->file_entry.path);
 
-    if (validated_configuration == *original_configuration) {
+    if (validated_configuration == original_configuration) {
         fim_delete_file_event(fim_sql, entry, mutex, alert, fim_ev_mode, NULL);
     }
 }

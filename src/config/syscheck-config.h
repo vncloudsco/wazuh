@@ -79,6 +79,12 @@ typedef enum fdb_stmt {
     FIMDB_STMT_SIZE
 } fdb_stmt;
 
+// The following foreach is really hacky, beware!!
+// It will only work with arrays that end on a NULL element
+#define foreach_array(iterator, array)            \
+    iterator = (array != NULL) ? array[0] : NULL; \
+    for (int _i = 0; iterator != NULL; iterator = array[++_i])
+
 #define FIM_MODE(x) (x & WHODATA_ACTIVE ? FIM_WHODATA : x & REALTIME_ACTIVE ? FIM_REALTIME : FIM_SCHEDULED)
 
 #if defined(WIN32) && defined(EVENTCHANNEL_SUPPORT)
@@ -334,6 +340,16 @@ typedef struct fdb_t
     volatile bool full;
 } fdb_t;
 
+typedef struct _directory_s {
+    char *path;
+    int options;
+    int diff_size_limit; /* Apply the file size limit option in a specific directory */
+    char *symbolic_links;
+    OSMatch *filerestrict;
+    int recursion_level;
+    char *tag; /* array of tags for each directory */
+} directory_t;
+
 typedef struct _config {
     int rootcheck;                  /* set to 0 when rootcheck is disabled */
     int disabled;                   /* is syscheck disabled? */
@@ -351,7 +367,7 @@ typedef struct _config {
     unsigned int enable_synchronization:1;    /* Enable database synchronization */
     unsigned int enable_registry_synchronization:1; /* Enable registry database synchronization */
 
-    int *opts;                      /* attributes set in the <directories> tag element */
+    directory_t **directories; /* List of directories to be monitored */
 
     char *scan_day;                 /* run syscheck on this day */
     char *scan_time;                /* run syscheck at this time */
@@ -366,7 +382,6 @@ typedef struct _config {
     int disk_quota_limit;           /* Controls the increase of the size of the queue/diff/local folder (in KB) */
     int file_size_enabled;          /* Enable diff file size limit */
     int file_size_limit;            /* Avoids generating a backup from a file bigger than this limit (in KB) */
-    int *diff_size_limit;           /* Apply the file size limit option in a specific directory */
     float diff_folder_size;         /* Save size of queue/diff/local folder */
     float comp_estimation_perc;     /* Estimation of the percentage of compression each file will have */
     uint16_t disk_quota_full_msg;   /* Specify if the full disk_quota message can be written (Once per scan) */
@@ -376,12 +391,6 @@ typedef struct _config {
     char **nodiff;                  /* list of files/dirs to never output diff */
     OSMatch **nodiff_regex;         /* regex of files/dirs to never output diff */
 
-    char **dir;                     /* array of directories to be scanned */
-    char **symbolic_links;         /* array of converted links directories */
-    OSMatch **filerestrict;
-    int *recursion_level;
-
-    char **tag;                     /* array of tags for each directory */
     long max_sync_interval;         /* Maximum Synchronization interval (seconds) */
     long sync_interval;             /* Synchronization interval (seconds) */
     long sync_response_timeout;     /* Minimum time between receiving a sync response and starting a new sync session */

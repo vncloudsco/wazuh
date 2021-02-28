@@ -218,28 +218,29 @@ void realtime_process() {
 }
 
 int realtime_update_watch(const char *wd, const char *dir) {
-    int old_wd, new_wd, index;
+    int old_wd, new_wd;
     char wdchar[33];
     char *data;
     int retval;
+    const directory_t *configuration;
 
     if (syscheck.realtime->fd < 0) {
         return -1;
     }
 
-    index = fim_configuration_directory(dir, "file");
+    configuration = fim_configuration_directory(dir);
 
-    if (index < 0) {
+    if (configuration == NULL) {
         inotify_rm_watch(syscheck.realtime->fd, atoi(wd));
         free(OSHash_Delete_ex(syscheck.realtime->dirtb, wd));
         return 0;
     }
 
     old_wd = atoi(wd);
-
-    new_wd = inotify_add_watch(syscheck.realtime->fd, dir,
-                               (syscheck.opts[index] & CHECK_FOLLOW) == 0 ? (REALTIME_MONITOR_FLAGS | IN_DONT_FOLLOW) :
-                                                                            REALTIME_MONITOR_FLAGS);
+    new_wd =
+    inotify_add_watch(syscheck.realtime->fd, dir,
+                      (configuration->options & CHECK_FOLLOW) == 0 ? (REALTIME_MONITOR_FLAGS | IN_DONT_FOLLOW) :
+                                                                     REALTIME_MONITOR_FLAGS);
 
     if (new_wd < 0) {
         if (errno == ENOSPC) {

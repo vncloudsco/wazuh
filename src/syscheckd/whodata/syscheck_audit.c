@@ -209,8 +209,8 @@ int init_auditd_socket(void) {
 }
 
 int add_audit_rules_syscheck(bool first_time) {
-    unsigned int i = 0;
     unsigned int rules_added = 0;
+    directory_t *dir_it;
 
     int auditd_fd = audit_open();
     int res = audit_get_rule_list(auditd_fd);
@@ -220,55 +220,55 @@ int add_audit_rules_syscheck(bool first_time) {
         merror(FIM_ERROR_WHODATA_READ_RULE);
     }
 
-    while (syscheck.dir[i] != NULL) {
+    foreach_array(dir_it, syscheck.directories) {
+        int retval;
         // Check if dir[i] is set in whodata mode
-        if (syscheck.opts[i] & WHODATA_ACTIVE) {
-            int retval;
-            if (W_Vector_length(audit_added_rules) < syscheck.max_audit_entries) {
-                const char *directory = fim_get_real_path(i);
-                int found = search_audit_rule(directory, "wa", AUDIT_KEY);
+        if ((dir_it->options & WHODATA_ACTIVE) == 0) {
+            continue;
+        }
 
-                if (found == 0) {
-                    if (retval = audit_add_rule(directory, AUDIT_KEY), retval > 0) {
-                        w_mutex_lock(&audit_rules_mutex);
-                        if(!W_Vector_insert_unique(audit_added_rules, directory)) {
-                            mdebug1(FIM_AUDIT_NEWRULE, directory);
-                        } else {
-                            mdebug1(FIM_AUDIT_RELOADED, directory);
-                        }
-                        w_mutex_unlock(&audit_rules_mutex);
-                        rules_added++;
-                    } else {
-                        if (first_time) {
-                            mwarn(FIM_WARN_WHODATA_ADD_RULE, directory);
-                        } else {
-                            mdebug1(FIM_WARN_WHODATA_ADD_RULE, directory);
-                        }
-                    }
-                } else if (found == 1) {
+        if (W_Vector_length(audit_added_rules) < syscheck.max_audit_entries) {
+            const char *directory = fim_get_real_path(dir_it);
+            int found = search_audit_rule(directory, "wa", AUDIT_KEY);
+
+            if (found == 0) {
+                if (retval = audit_add_rule(directory, AUDIT_KEY), retval > 0) {
                     w_mutex_lock(&audit_rules_mutex);
                     if(!W_Vector_insert_unique(audit_added_rules, directory)) {
-                        mdebug1(FIM_AUDIT_RULEDUP, directory);
+                        mdebug1(FIM_AUDIT_NEWRULE, directory);
+                    } else {
+                        mdebug1(FIM_AUDIT_RELOADED, directory);
                     }
                     w_mutex_unlock(&audit_rules_mutex);
                     rules_added++;
                 } else {
-                    merror(FIM_ERROR_WHODATA_CHECK_RULE);
+                    if (first_time) {
+                        mwarn(FIM_WARN_WHODATA_ADD_RULE, directory);
+                    } else {
+                        mdebug1(FIM_WARN_WHODATA_ADD_RULE, directory);
+                    }
                 }
+            } else if (found == 1) {
+                w_mutex_lock(&audit_rules_mutex);
+                if(!W_Vector_insert_unique(audit_added_rules, directory)) {
+                    mdebug1(FIM_AUDIT_RULEDUP, directory);
+                }
+                w_mutex_unlock(&audit_rules_mutex);
+                rules_added++;
             } else {
-                static bool reported = false;
-
-                if (first_time || !reported) {
-                    merror(FIM_ERROR_WHODATA_MAXNUM_WATCHES, fim_get_real_path(i), syscheck.max_audit_entries);
-                } else {
-                    mdebug1(FIM_ERROR_WHODATA_MAXNUM_WATCHES, fim_get_real_path(i), syscheck.max_audit_entries);
-                }
-
-                reported = true;
+                merror(FIM_ERROR_WHODATA_CHECK_RULE);
             }
-        }
+        } else {
+            static bool reported = false;
 
-        i++;
+            if (first_time || !reported) {
+                merror(FIM_ERROR_WHODATA_MAXNUM_WATCHES, fim_get_real_path(dir_it), syscheck.max_audit_entries);
+            } else {
+                mdebug1(FIM_ERROR_WHODATA_MAXNUM_WATCHES, fim_get_real_path(dir_it), syscheck.max_audit_entries);
+            }
+
+            reported = true;
+        }
     }
 
     return rules_added;
@@ -277,19 +277,19 @@ int add_audit_rules_syscheck(bool first_time) {
 
 void audit_no_rules_to_realtime() {
     int found;
-    int i;
+    directory_t *dir_it;
 
-    for (i = 0; syscheck.dir[i] != NULL; i++) {
-        if ((syscheck.opts[i] & WHODATA_ACTIVE) == 0) {
+    foreach_array(dir_it, syscheck.directories) {
+        if ((dir_it->options & WHODATA_ACTIVE) == 0) {
             continue;
         }
 
-        found = search_audit_rule(fim_get_real_path(i), "wa", AUDIT_KEY);
+        found = search_audit_rule(fim_get_real_path(dir_it), "wa", AUDIT_KEY);
 
         if (found == 0) {   // No rule found
-            mwarn(FIM_ERROR_WHODATA_ADD_DIRECTORY, fim_get_real_path(i));
-            syscheck.opts[i] &= ~WHODATA_ACTIVE;
-            syscheck.opts[i] |= REALTIME_ACTIVE;
+            mwarn(FIM_ERROR_WHODATA_ADD_DIRECTORY, fim_get_real_path(dir_it));
+            dir_it->options &= ~WHODATA_ACTIVE;
+            dir_it->options |= REALTIME_ACTIVE;
         }
     }
 }
@@ -1265,13 +1265,13 @@ void * audit_main(int *audit_sock) {
         for (i = 0; i < W_Vector_length(audit_added_dirs); i++) {
             char *path;
             os_strdup(W_Vector_get(audit_added_dirs, i), path);
-            int pos = fim_configuration_directory(path, "file");
+            directory_t *configuration = fim_configuration_directory(path);
 
-            if (pos >= 0) {
-                syscheck.opts[pos] &= ~ WHODATA_ACTIVE;
-                syscheck.opts[pos] |= REALTIME_ACTIVE;
+            if (configuration) {
+                configuration->options &= ~WHODATA_ACTIVE;
+                configuration->options |= REALTIME_ACTIVE;
 
-                realtime_adddir(path, 0, (syscheck.opts[pos] & CHECK_FOLLOW) ? 1 : 0);
+                realtime_adddir(path, 0, (configuration->options & CHECK_FOLLOW) ? 1 : 0);
             }
             os_free(path);
         }

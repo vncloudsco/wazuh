@@ -145,8 +145,12 @@ int fim_db_delete_not_scanned(fdb_t *fim_sql, fim_tmp_file *file, pthread_mutex_
  *
  * @return FIMDB_OK on success, FIMDB_ERR otherwise.
  */
-int fim_db_delete_range(fdb_t * fim_sql, fim_tmp_file *file,
-                        pthread_mutex_t *mutex, int storage, fim_event_mode mode, int *configuration);
+int fim_db_delete_range(fdb_t *fim_sql,
+                        fim_tmp_file *file,
+                        pthread_mutex_t *mutex,
+                        int storage,
+                        fim_event_mode mode,
+                        const directory_t *configuration);
 
 /**
  * @brief Remove a range of paths from database if they have a specific monitoring mode.
