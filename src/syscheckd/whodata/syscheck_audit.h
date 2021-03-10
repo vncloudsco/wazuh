@@ -20,6 +20,14 @@
 #define AUDIT_HEALTHCHECK_KEY "wazuh_hc"
 #define AUDIT_KEY "wazuh_fim"
 #define AUDIT_SOCKET DEFAULTDIR "/queue/sockets/audit"
+#define AUDIT_CONF_FILE DEFAULTDIR "/etc/af_wazuh.conf"
+#define AUDIT_RULES_FILE DEFAULTDIR "/etc/audit_rules_wazuh.rules"
+#define PLUGINS_DIR_AUDIT_2 "/etc/audisp/plugins.d"
+#define PLUGINS_DIR_AUDIT_3 "/etc/audit/plugins.d"
+#define AUDIT_RULES_LINK "/etc/audit/rules.d/audit_rules_wazuh.rules"
+#define AUDIT_CONF_LINK "af_wazuh.conf"
+#define BUF_SIZE OS_MAXSTR
+#define MAX_CONN_RETRIES 5 // Max retries to reconnect to Audit socket
 
 typedef struct {
     char *path;

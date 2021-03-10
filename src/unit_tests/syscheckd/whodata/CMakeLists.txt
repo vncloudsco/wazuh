@@ -52,7 +52,8 @@ if(NOT ${TARGET} STREQUAL "winagent")
                               -Wl,--wrap,fread -Wl,--wrap,fseek -Wl,--wrap,fwrite -Wl,--wrap,remove -Wl,--wrap,fgetc \
                               -Wl,--wrap,getpid -Wl,--wrap,sleep -Wl,--wrap,unlink -Wl,--wrap,audit_delete_rule \
                               -Wl,--wrap,select -Wl,--wrap,audit_parse -Wl,--wrap,symlink -Wl,--wrap,SendMSG \
-                              -Wl,--wrap,audit_get_rule_list -Wl,--wrap,fim_audit_reload_rules -Wl,--wrap,search_audit_rule")
+                              -Wl,--wrap,audit_get_rule_list -Wl,--wrap,fim_audit_reload_rules -Wl,--wrap,search_audit_rule \
+                              -Wl,--wrap=audit_open,--wrap=audit_close")
 
     target_link_libraries(test_syscheck_audit SYSCHECK_O ${TEST_DEPS})
 
