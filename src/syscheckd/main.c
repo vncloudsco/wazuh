@@ -45,6 +45,7 @@ int main(int argc, char **argv)
     const char *cfg = DEFAULTCPATH;
     gid_t gid;
     const char *group = GROUPGLOBAL;
+    int start_realtime = 0;
 
     /* Set the name */
     OS_SetName(ARGV0);
@@ -239,6 +240,7 @@ int main(int argc, char **argv)
             if (syscheck.opts[r] & REALTIME_ACTIVE) {
 #if defined (INOTIFY_ENABLED) || defined (WIN32)
                 minfo(FIM_REALTIME_MONITORING_DIRECTORY, syscheck.dir[r]);
+                start_realtime = 1;
 #else
                 mwarn(FIM_WARN_REALTIME_DISABLED, syscheck.dir[r]);
                 syscheck.opts[r] &= ~ REALTIME_ACTIVE;
@@ -251,6 +253,10 @@ int main(int argc, char **argv)
     }
 
     fim_initialize();
+
+    if (start_realtime == 1) {
+        realtime_start();
+    }
 
     // Audit events thread
     if (!syscheck.disabled && syscheck.enable_whodata) {
@@ -267,6 +273,12 @@ int main(int argc, char **argv)
                     syscheck.opts[i] |= REALTIME_ACTIVE;
                 }
             }
+        w_mutex_lock(&syscheck.fim_realtime_mutex);
+        if (syscheck.realtime == NULL) {
+            realtime_start();
+        }
+        w_mutex_unlock(&syscheck.fim_realtime_mutex);
+
         }
 #else
         merror(FIM_ERROR_WHODATA_AUDIT_SUPPORT);

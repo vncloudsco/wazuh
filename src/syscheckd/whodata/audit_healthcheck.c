@@ -27,7 +27,6 @@ int audit_health_check(int audit_socket) {
     FILE *fp = NULL;
     struct timespec wait_time = {0, 0};
 
-
     w_mutex_init(&audit_hc_mutex, NULL);
 
     retval = audit_add_rule(AUDIT_HEALTHCHECK_DIR, WHODATA_PERMS, AUDIT_HEALTHCHECK_KEY);
