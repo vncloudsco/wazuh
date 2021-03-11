@@ -9,6 +9,7 @@
  */
 
 #include "shared.h"
+#include <stdatomic.h>
 
 #define LOCK_LOOP   5
 
@@ -97,23 +98,23 @@ void os_wait()
 void os_wait()
 {
     struct stat file_status;
-    static int just_unlocked = 0;
+    static atomic_int_t just_unlocked = ATOMIC_INT_INITIALIZER(0);
 
     /* If the wait file is not present, keep going */
     if (isChroot()) {
         if (stat(WAIT_FILE, &file_status) == -1) {
-            just_unlocked = 1;
+            atomic_int_set(&just_unlocked, 1);
             return;
         }
     } else {
         if (stat(WAIT_FILE_PATH, &file_status) == -1) {
-            just_unlocked = 1;
+            atomic_int_set(&just_unlocked, 1);
             return;
         }
     }
 
     /* Wait until the lock is gone */
-    if (just_unlocked){
+    if (atomic_int_get(&just_unlocked) == 1){
         mwarn(WAITING_MSG);
     } else {
         mdebug1(WAITING_MSG);
@@ -134,13 +135,13 @@ void os_wait()
         sleep(LOCK_LOOP);
     }
 
-    if (just_unlocked) {
+    if (atomic_int_get(&just_unlocked) == 1) {
         minfo(WAITING_FREE);
     } else {
         mdebug1(WAITING_FREE);
     }
 
-    just_unlocked = 1;
+    atomic_int_set(&just_unlocked, 1);
 
     return;
 }
