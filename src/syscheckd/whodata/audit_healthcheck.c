@@ -25,6 +25,8 @@ int audit_health_check(int audit_socket) {
     int retval = -1;
     unsigned int timer = 10;
     FILE *fp = NULL;
+    struct timespec wait_time = {0, 0};
+
 
     w_mutex_init(&audit_hc_mutex, NULL);
 
@@ -77,12 +79,19 @@ int audit_health_check(int audit_socket) {
         mdebug1(FIM_HEALTHCHECK_CHECK_RULE); // LCOV_EXCL_LINE
     }
     atomic_int_set(&hc_thread_active, 0);
+
+    // Lock this thread (with 5 seconds timeout) until the healthcheck thread has ended.
+    w_mutex_lock(&audit_hc_mutex);
+    gettime(&wait_time);
+    wait_time.tv_sec += 5;
+    pthread_cond_timedwait(&audit_hc_started, &audit_hc_mutex, &wait_time);
+    w_mutex_unlock(&audit_hc_mutex);
+
     return retval;
 }
 
 // LCOV_EXCL_START
 void *audit_healthcheck_thread(int *audit_sock) {
-
     w_mutex_lock(&audit_hc_mutex);
     atomic_int_set(&hc_thread_active, 1);
     w_cond_signal(&audit_hc_started);
@@ -93,6 +102,10 @@ void *audit_healthcheck_thread(int *audit_sock) {
     audit_read_events(audit_sock, &hc_thread_active);
 
     mdebug2(FIM_HEALTHCHECK_THREAD_FINISHED);
+
+    w_mutex_lock(&audit_hc_mutex);
+    w_cond_broadcast(&audit_hc_started);
+    w_mutex_unlock(&audit_hc_mutex);
 
     return NULL;
 }
