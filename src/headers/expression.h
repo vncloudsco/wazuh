@@ -16,6 +16,7 @@
 #include "shared.h"
 #include "os_regex/os_regex.h"
 #include "validate_op.h"
+#include <time.h>
 
 #define OSMATCH_STR  "osmatch"
 #define OSREGEX_STR  "osregex"
@@ -102,7 +103,7 @@ bool w_expression_compile(w_expression_t * expression, char * pattern, int flags
  * @return true if match. false otherwise
  */
 bool w_expression_match(w_expression_t * expression, const char * str_test, const char ** end_match,
-                        regex_matching * regex_match);
+                        regex_matching * regex_match, clock_t * time, int * count);
 
 /**
  * @brief Fill a match_data with PCRE2 result

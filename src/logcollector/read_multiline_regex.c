@@ -232,7 +232,7 @@ STATIC int multiline_getlog_start(char * buffer, int length, FILE * stream, w_mu
     while (can_read() && (retstr = fgets(str, length - offset, stream)) != NULL) {
 
         /* Check if current line match start regex */
-        if (collecting_lines && w_expression_match(ml_cfg->regex, str, NULL, NULL)) {
+        if (collecting_lines && w_expression_match(ml_cfg->regex, str, NULL, NULL, NULL, NULL)) {
             /* Rewind. This line dont belong to last log */
             buffer[offset] = '\0';
             multiline_replace(buffer, ML_REPLACE_NONE);
@@ -307,7 +307,7 @@ STATIC int multiline_getlog_end(char * buffer, int length, FILE * stream, w_mult
     while (can_read() && (retstr = fgets(str, length - offset, stream)) != NULL) {
 
         readed_lines++;
-        if (w_expression_match(ml_cfg->regex, str, NULL, NULL)) {
+        if (w_expression_match(ml_cfg->regex, str, NULL, NULL, NULL, NULL)) {
             multiline_replace(buffer, ML_REPLACE_NONE);
             collecting_lines = false;
             break;
@@ -377,7 +377,7 @@ STATIC int multiline_getlog_all(char * buffer, int length, FILE * stream, w_mult
     while (can_read() && (retstr = fgets(str, length - offset, stream)) != NULL) {
 
         readed_lines++;
-        if (w_expression_match(ml_cfg->regex, buffer, NULL, NULL)) {
+        if (w_expression_match(ml_cfg->regex, buffer, NULL, NULL, NULL, NULL)) {
             multiline_replace(buffer, ML_REPLACE_NONE);
             collecting_lines = false;
             break;

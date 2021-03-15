@@ -295,6 +295,14 @@ void OS_Log(Eventinfo *lf)
         }
     }
 
+    if(lf->dec_start && lf->dec_end && lf->rule_start && lf->rule_end) {
+        fprintf(_aflog, "_wall_time_dec_rule, %li,%li\n", lf->dec_end - lf->dec_start, lf->rule_end - lf->rule_start);
+    }
+
+    if(lf->regex_count && lf->regex_time) {
+        fprintf(_aflog, "_wall_time_regex, %li,%i\n", lf->regex_time, lf->regex_count);
+    }
+
     /* Print the last events if present */
     if (lf->last_events) {
         char **lasts = lf->last_events;

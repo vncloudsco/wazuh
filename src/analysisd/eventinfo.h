@@ -13,6 +13,7 @@
 
 #include "rules.h"
 #include "decoders/decoder.h"
+#include <time.h>
 
 typedef enum syscheck_event_t { FIM_ADDED, FIM_MODIFIED, FIM_READDED, FIM_DELETED } syscheck_event_t;
 typedef struct _EventNode EventNode;
@@ -132,6 +133,13 @@ typedef struct _Eventinfo {
     EventNode *node;
     // Process thread id
     int tid;
+    // event decode time
+    clock_t dec_start;
+    clock_t dec_end;
+    clock_t rule_start;
+    clock_t rule_end;
+    clock_t regex_time;
+    int regex_count;
 } Eventinfo;
 
 /* Events List structure */

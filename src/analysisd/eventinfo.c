@@ -708,6 +708,13 @@ void Zero_Eventinfo(Eventinfo *lf)
     lf->decoder_syscheck_id = 0;
     lf->tid = -1;
 
+    lf->dec_start = 0;
+    lf->dec_end = 0;
+    lf->rule_start = 0;
+    lf->rule_end = 0;
+    lf->regex_count = 0;
+    lf->regex_time = 0;
+
     return;
 }
 
@@ -1353,6 +1360,13 @@ void w_copy_event_for_log(Eventinfo *lf,Eventinfo *lf_cpy){
     lf_cpy->decoder_syscheck_id = lf->decoder_syscheck_id;
     lf_cpy->rootcheck_fts = lf->rootcheck_fts;
     lf_cpy->is_a_copy = 1;
+
+    lf_cpy->dec_end = lf->dec_end;
+    lf_cpy->dec_start = lf->dec_start;
+    lf_cpy->rule_start = lf->rule_start;
+    lf_cpy->rule_end = lf->rule_end;
+    lf_cpy->regex_count = lf->regex_count;
+    lf_cpy->regex_time = lf->regex_time;
 }
 
 void w_free_event_info(Eventinfo *lf) {
