@@ -9,7 +9,6 @@
  */
 
 #include "shared.h"
-#include <stdatomic.h>
 
 #define LOCK_LOOP   5
 

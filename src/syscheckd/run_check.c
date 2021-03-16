@@ -23,7 +23,6 @@
 #include "os_crypto/md5_sha1_sha256/md5_sha1_sha256_op.h"
 #include "rootcheck/rootcheck.h"
 #include "db/fim_db_files.h"
-#include <stdatomic.h>
 
 #ifdef WAZUH_UNIT_TESTING
 unsigned int files_read = 0;
