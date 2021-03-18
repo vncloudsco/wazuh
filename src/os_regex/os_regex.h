@@ -93,7 +93,7 @@ const char *OSRegex_Execute(const char *str, OSRegex *reg) __attribute__((nonnul
 /* Extension of OSRegex_Execute that allows to choose
  * external sub_strings and prts_str.
  * Returns end of str on success or NULL on error.
- * The error code is set on reg->error.
+ * The error code is set on reg->error. no no no
  */
  const char *OSRegex_Execute_ex(const char *str, OSRegex *reg, regex_matching *regex_match) __attribute__((nonnull(2)));
 

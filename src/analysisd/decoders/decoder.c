@@ -37,7 +37,7 @@ void DecodeEvent(struct _Eventinfo *lf, OSHash *rules_hash, regex_matching *deco
 
         /* First check program name */
         if (lf->program_name) {
-            if (!w_expression_match(nnode->program_name, lf->program_name, NULL, NULL, &lf->regex_time, &lf->regex_count)) {
+            if (!w_expression_match(nnode->program_name, lf->program_name, NULL, decoder_match, &lf->regex_time, &lf->regex_count)) {
                 continue;
             }
             pmatch = lf->log;
