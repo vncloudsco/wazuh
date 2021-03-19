@@ -295,19 +295,15 @@ void OS_Log(Eventinfo *lf)
         }
     }
 
-    if((lf->dec_start.tv_usec || lf->dec_end.tv_usec) && (lf->rule_start.tv_usec || lf->rule_end.tv_usec)) {
-        uint64_t dec_time = (uint64_t) ((lf->dec_end.tv_sec - lf->dec_start.tv_sec) * 1000000); 
-        dec_time = (dec_time + (lf->dec_end.tv_usec - lf->dec_start.tv_usec)); 
+    uint64_t dec_time = (uint64_t)((lf->dec_end.tv_sec - lf->dec_start.tv_sec) * 1000000);
+    dec_time = (dec_time + (lf->dec_end.tv_usec - lf->dec_start.tv_usec));
 
-        uint64_t rule_time = (uint64_t) ((lf->rule_end.tv_sec - lf->rule_start.tv_sec) * 1000000); 
-        rule_time = (rule_time + (lf->rule_end.tv_usec - lf->rule_start.tv_usec)); 
+    uint64_t rule_time = (uint64_t)((lf->rule_end.tv_sec - lf->rule_start.tv_sec) * 1000000);
+    rule_time = (rule_time + (lf->rule_end.tv_usec - lf->rule_start.tv_usec));
 
-        fprintf(_aflog, "_wall_time_dec_rule, %lu, %lu\n", dec_time, rule_time);
-    }
+    fprintf(_aflog, "_wall_time_dec_rule, %lu, %lu\n", dec_time, rule_time);
 
-    if(lf->regex_count && lf->regex_time) {
-        fprintf(_aflog, "_wall_time_regex, %lu, %i\n", lf->regex_time, lf->regex_count);
-    }
+    fprintf(_aflog, "_wall_time_regex, %lu, %i\n", lf->regex_time, lf->regex_count);
 
     /* Print the last events if present */
     if (lf->last_events) {
