@@ -708,10 +708,12 @@ void Zero_Eventinfo(Eventinfo *lf)
     lf->decoder_syscheck_id = 0;
     lf->tid = -1;
 
+/*
     lf->dec_start = 0;
     lf->dec_end = 0;
     lf->rule_start = 0;
     lf->rule_end = 0;
+*/
     lf->regex_count = 0;
     lf->regex_time = 0;
 

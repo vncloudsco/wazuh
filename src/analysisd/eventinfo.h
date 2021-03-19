@@ -134,11 +134,11 @@ typedef struct _Eventinfo {
     // Process thread id
     int tid;
     // event decode time
-    clock_t dec_start;
-    clock_t dec_end;
-    clock_t rule_start;
-    clock_t rule_end;
-    clock_t regex_time;
+    struct timeval dec_start;
+    struct timeval dec_end;
+    struct timeval rule_start;
+    struct timeval rule_end;
+    uint64_t regex_time;
     int regex_count;
 } Eventinfo;
 

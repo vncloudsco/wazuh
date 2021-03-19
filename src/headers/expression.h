@@ -103,7 +103,7 @@ bool w_expression_compile(w_expression_t * expression, char * pattern, int flags
  * @return true if match. false otherwise
  */
 bool w_expression_match(w_expression_t * expression, const char * str_test, const char ** end_match,
-                        regex_matching * regex_match, clock_t * time, int * count);
+                        regex_matching * regex_match, uint64_t * time, int * count);
 
 /**
  * @brief Fill a match_data with PCRE2 result

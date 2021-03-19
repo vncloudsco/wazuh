@@ -1744,9 +1744,9 @@ void * w_decode_event_thread(__attribute__((unused)) void * args){
                 }
             } else {
                 node = OS_GetFirstOSDecoder(lf->program_name);
-                lf->dec_start = clock();
+                gettimeofday(&lf->dec_start, NULL);
                 DecodeEvent(lf, Config.g_rules_hash, &decoder_match, node);
-                lf->dec_end = clock();
+                gettimeofday(&lf->dec_end, NULL);
             }
 
             free(msg);
@@ -2005,7 +2005,7 @@ void * w_process_event_thread(__attribute__((unused)) void * id){
         if (!rulenode_pt) {
             merror_exit("Rules in an inconsistent state. Exiting.");
         }
-        lf->rule_start = clock();
+        gettimeofday(&lf->rule_start, NULL);
         do {
             if (lf->decoder_info->type == OSSEC_ALERT) {
                 if (!lf->generated_rule) {
@@ -2075,7 +2075,7 @@ void * w_process_event_thread(__attribute__((unused)) void * id){
             /* Log the alert if configured to */
             if (t_currently_rule->alert_opts & DO_LOGALERT) {
                 os_calloc(1, sizeof(Eventinfo), lf_cpy);
-                lf->rule_end = clock();
+                gettimeofday(&lf->rule_end, NULL);
                 w_copy_event_for_log(lf, lf_cpy);
                 if (queue_push_ex_block(writer_queue_log, lf_cpy) < 0) {
                     Free_Eventinfo(lf_cpy);

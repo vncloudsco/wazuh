@@ -151,7 +151,7 @@ bool w_expression_compile(w_expression_t * expression, char * pattern, int flags
 }
 
 bool w_expression_match(w_expression_t * expression, const char * str_test, const char ** end_match,
-                        regex_matching * regex_match, clock_t * time, int * count) {
+                        regex_matching * regex_match, uint64_t * time, int * count) {
 
     bool retval = false;
     const char * ret_match = NULL;
@@ -160,8 +160,8 @@ bool w_expression_match(w_expression_t * expression, const char * str_test, cons
     pcre2_match_data * match_data = NULL;
     PCRE2_SIZE * ovector = NULL;
     int captured_groups = 0;
-    clock_t start = 0;
-    clock_t end = 0;
+    struct timeval start, end; 
+    uint64_t match_time;
 
     if (expression == NULL || str_test == NULL) {
         return retval;
@@ -177,16 +177,24 @@ bool w_expression_match(w_expression_t * expression, const char * str_test, cons
             if (regex_match == NULL) {
                 regex_match = &status_match;
             }
-            start = clock();
+            gettimeofday(&start, NULL); 
             if (ret_match = OSRegex_Execute_ex(str_test, expression->regex, regex_match), ret_match) {
                 retval = true;
             }
-            end = clock();
+            gettimeofday(&end, NULL); 
+
             if (status_match.sub_strings != NULL) {
                 OSRegex_free_regex_matching(&status_match);
             }
             if (count != NULL && time != NULL) {
-                *time = *time + (end - start);
+                /*
+                match_time = (end.tv_sec - start.tv_sec) * 1e6; 
+                match_time = (match_time + (end.tv_usec -  
+                              start.tv_usec)) * 1e-6; 
+                */
+               match_time = (uint64_t) ((end.tv_sec - start.tv_sec) * 1000000); 
+               match_time = (match_time + (end.tv_usec - start.tv_usec)); 
+                *time = *time + match_time;
                 *count = *count + 1;
             }
             break;
