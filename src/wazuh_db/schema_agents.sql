@@ -122,6 +122,17 @@ CREATE TABLE IF NOT EXISTS sys_osinfo (
     PRIMARY KEY (scan_id, os_name)
 );
 
+CREATE TRIGGER os_update
+    AFTER DELETE ON sys_osinfo
+    WHEN (old.checksum = 'legacy' AND EXISTS (SELECT 1 FROM sys_programs
+                                              WHERE reference = old.reference
+                                              AND scan_id != old.scan_id ))
+    OR (old.checksum != 'legacy' AND NOT EXISTS (SELECT 1 FROM sys_programs
+                                                 WHERE reference != old.reference ))
+    BEGIN
+        UPDATE sys_osinfo SET triaged = old.triaged;
+END;
+
 CREATE TABLE IF NOT EXISTS sys_hwinfo (
     scan_id INTEGER,
     scan_time TEXT,
@@ -185,13 +196,13 @@ CREATE INDEX IF NOT EXISTS programs_id ON sys_programs (scan_id);
 
 CREATE TRIGGER obsolete_vulnerabilities
     AFTER DELETE ON sys_programs
-    WHEN (old.checksum = 'legacy' AND NOT EXISTS (SELECT 1 FROM sys_programs WHERE name = old.name
-                                                  AND version = old.version AND architecture = old.architecture
+    WHEN (old.checksum = 'legacy' AND NOT EXISTS (SELECT 1 FROM sys_programs
+                                                  WHERE item_id = old.item_id
                                                   AND scan_id != old.scan_id ))
-        OR old.checksum != 'legacy'
-BEGIN
-    UPDATE vuln_cves SET status = 'OBSOLETE' WHERE vuln_cves.reference = old.item_id;
-END;
+    OR old.checksum != 'legacy'
+    BEGIN
+        UPDATE vuln_cves SET status = 'OBSOLETE' WHERE vuln_cves.reference = old.item_id;
+END
 
 CREATE TABLE IF NOT EXISTS sys_hotfixes (
     scan_id INTEGER,

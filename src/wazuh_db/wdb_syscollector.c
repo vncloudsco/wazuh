@@ -396,6 +396,23 @@ int wdb_osinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, c
         return -1;
     }
 
+    // Getting OS reference
+    os_sha1 hexdigest;
+    wdbi_sha_calculation(NULL, hexdigest, 13,
+                         architecture ? architecture : "",
+                         os_name ? os_name : "",
+                         os_version ? os_version : "",
+                         os_codename ? os_codename : "",
+                         os_major ? os_major : "",
+                         os_minor ? os_minor : "",
+                         os_patch ? os_patch : "",
+                         os_build ? os_build : "",
+                         os_platform ? os_platform : "",
+                         sysname ? sysname : "",
+                         release ? release : "",
+                         version ? version : "",
+                         os_release ? os_release : "");
+
     if (wdb_osinfo_insert(wdb,
         scan_id,
         scan_time,
@@ -414,7 +431,9 @@ int wdb_osinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, c
         version,
         os_release,
         checksum,
-        replace) < 0) {
+        replace,
+        hexdigest,
+        0) < 0) {
 
         return -1;
     }
@@ -423,7 +442,7 @@ int wdb_osinfo_save(wdb_t * wdb, const char * scan_id, const char * scan_time, c
 }
 
 // Insert OS info tuple. Return 0 on success or -1 on error. (v2)
-int wdb_osinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release, const char * checksum, const bool replace) {
+int wdb_osinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time, const char * hostname, const char * architecture, const char * os_name, const char * os_version, const char * os_codename, const char * os_major, const char * os_minor, const char * os_patch, const char * os_build, const char * os_platform, const char * sysname, const char * release, const char * version, const char * os_release, const char * checksum, const bool replace, os_sha1 hexdigest, int triaged) {
     sqlite3_stmt *stmt = NULL;
 
     if (wdb_stmt_cache(wdb, replace ? WDB_STMT_OSINFO_INSERT2 : WDB_STMT_OSINFO_INSERT) < 0) {
@@ -450,6 +469,8 @@ int wdb_osinfo_insert(wdb_t * wdb, const char * scan_id, const char * scan_time,
     sqlite3_bind_text(stmt, 15, version, -1, NULL);
     sqlite3_bind_text(stmt, 16, os_release, -1, NULL);
     sqlite3_bind_text(stmt, 17, checksum, -1, NULL);
+    sqlite3_bind_text(stmt, 18, hexdigest, -1, NULL);
+    sqlite3_bind_int(stmt, 19, triaged);
 
     if (sqlite3_step(stmt) == SQLITE_DONE){
         return 0;
