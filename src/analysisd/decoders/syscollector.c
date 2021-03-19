@@ -1471,7 +1471,7 @@ int decode_package( Eventinfo *lf,cJSON * logJSON,int *socket) {
 
         //Calculating hash of the NULL terminated array
         fields_to_hash[3] = NULL;
-        wdbi_sha_calculation((const char **)fields_to_hash, hexdigest);
+        wdbi_sha_calculation((const char **)fields_to_hash, hexdigest, 0);
         wm_strcat(&msg, hexdigest, '|');
         free_strarray(fields_to_hash);
 
