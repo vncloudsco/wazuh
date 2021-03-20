@@ -202,7 +202,7 @@ CREATE TRIGGER obsolete_vulnerabilities
     OR old.checksum != 'legacy'
     BEGIN
         UPDATE vuln_cves SET status = 'OBSOLETE' WHERE vuln_cves.reference = old.item_id;
-END
+END;
 
 CREATE TABLE IF NOT EXISTS sys_hotfixes (
     scan_id INTEGER,
